@@ -1,0 +1,74 @@
+-- Launch the watcher inside the normal mpv process; playback and resume stay with mpv.
+local mp = require 'mp'
+local utils = require 'mp.utils'
+local options = require 'mp.options'
+local project = __PROJECT_LITERAL__
+local python = __PYTHON_LITERAL__
+
+-- Explicit Play.cmd/Preview.cmd launches already have their own bridge and watcher.
+local pipe = mp.get_property('options/input-ipc-server', '')
+if pipe:find('mpv-serializd-', 1, true) and not pipe:find('mpv-serializd-auto-', 1, true) then
+    return
+end
+
+local opts = {mode = ''}
+options.read_options(opts, 'serializd-auto')
+local mode = 'auto'
+local config_file = io.open(utils.join_path(project, 'config.json'), 'rb')
+if config_file then
+    local config = utils.parse_json(config_file:read('*a'))
+    config_file:close()
+    if config and config.auto_mode then mode = config.auto_mode end
+end
+if opts.mode ~= '' then mode = opts.mode end
+if mode == 'off' then return end
+if mode ~= 'auto' and mode ~= 'live' and mode ~= 'dry-run' then
+    mp.msg.error('Serializd auto_mode must be auto, live, dry-run, or off.')
+    return
+end
+
+local ok, err = pcall(dofile, utils.join_path(project, 'bridge.lua'))
+if not ok then
+    mp.msg.error('Could not load the Serializd bridge: ' .. tostring(err))
+    return
+end
+if pipe == '' then
+    pipe = '\\\\.\\pipe\\mpv-serializd-auto-' .. tostring(utils.getpid())
+    local success, ipc_error = mp.set_property('options/input-ipc-server', pipe)
+    if not success then
+        mp.msg.error('Could not start Serializd IPC: ' .. tostring(ipc_error))
+        return
+    end
+end
+
+local ready = false
+mp.register_script_message('serializd-ready', function(active_mode)
+    ready = true
+    if active_mode == 'preview' then
+        mp.osd_message('Serializd preview active. Run Login.cmd to enable diary logging.', 5)
+    else
+        mp.msg.info('Serializd diary logging active.')
+    end
+end)
+local args = {python, '-X', 'utf8', utils.join_path(project, 'serializd_mpv.py'),
+              'watch', '--background', '--pipe', pipe}
+if mode == 'auto' then
+    args[#args + 1] = '--auto'
+elseif mode == 'live' then
+    args[#args + 1] = '--live'
+else
+    args[#args + 1] = '--dry-run'
+end
+mp.command_native_async({name = 'subprocess', args = args, detach = true,
+    playback_only = false, capture_stdout = false, capture_stderr = false},
+    function(success, result, start_error)
+        if not success or (result and result.status ~= 0) then
+            mp.msg.error('Could not start Serializd watcher: ' .. tostring(start_error))
+        end
+    end)
+mp.add_timeout(10, function()
+    if not ready then
+        mp.msg.warn('Serializd watcher did not connect. Check the project .local/sync.log.')
+        mp.osd_message('Serializd sync unavailable. Check the setup instructions.', 5)
+    end
+end)

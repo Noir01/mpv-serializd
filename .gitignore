@@ -1,0 +1,26 @@
+# Private configuration and account/watch state
+/config.json
+.local/
+session.dat
+session.tmp
+*.sqlite3
+*.sqlite3-*
+*.log
+.env
+.env.*
+
+# Generated installation scripts contain local paths
+serializd-autostart.lua
+*.backup
+
+# Development files
+__pycache__/
+*.py[cod]
+work/
+.venv/
+venv/
+.pytest_cache/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

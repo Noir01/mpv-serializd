@@ -1,0 +1,7 @@
+{
+  "threshold": 0.9,
+  "auto_mode": "auto",
+  "include_specials": false,
+  "example_folder": null,
+  "show_ids": {}
+}
